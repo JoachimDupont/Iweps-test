@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explorateur des données IWEPS</title>
+<style>
+:root{font-family:Inter,Segoe UI,Arial,sans-serif;color:#172b4d;background:#f4f7fb}
+*{box-sizing:border-box}body{margin:0}header{padding:34px max(20px,calc((100% - 1100px)/2));background:#163b65;color:white}
+header h1{margin:0 0 8px;font-size:clamp(26px,4vw,38px)}header p{margin:0;color:#e0ebf7;max-width:750px;line-height:1.5}
+main{max-width:1100px;margin:24px auto;padding:0 18px}.panel{background:white;border:1px solid #e0e7ef;border-radius:16px;padding:22px;margin-bottom:20px;box-shadow:0 4px 18px #203b5b0a}
+h2{margin:0 0 14px;font-size:22px}.hint{color:#53657b;font-size:14px;line-height:1.5}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.theme{border:1px solid #dce5ef;border-radius:12px;padding:15px;background:#fff;cursor:pointer;text-align:left;color:inherit}
+.theme:hover,.theme.active{border-color:#2867ad;background:#f0f6ff}.theme strong{display:block;margin-bottom:7px}.theme span{color:#586a80;font-size:13px;line-height:1.4}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}label{display:block;font-size:14px;font-weight:600}input,select,button{font:inherit;border:1px solid #cbd5e1;border-radius:8px;padding:11px;margin-top:6px}input{width:min(100%,260px)}button{cursor:pointer;background:#1d5fa7;color:white;border-color:#1d5fa7}button.secondary{background:white;color:#1d5fa7}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:460px;overflow:auto;background:#f5f7fa;padding:14px;border-radius:10px;font-size:13px}
+.status{margin:12px 0;color:#344b65}.footer{font-size:13px;color:#5c6d80;padding:4px 2px 28px}a{color:#155ca5}
+@media(max-width:600px){.panel{padding:16px}header{padding:26px 18px}}
+</style>
+</head>
+<body>
+<header>
+<h1>Explorateur des données IWEPS</h1>
+<p>Un point d’entrée thématique vers les données publiques wallonnes. Prototype en ligne : recherche d’indicateurs par identifiant, consultation JSON et téléchargement des réponses.</p>
+</header>
+<main>
+<section class="panel">
+<h2>Explorer par thème</h2>
+<p class="hint">Choisis une catégorie pour la sélectionner. Les thèmes sont une classification éditoriale de départ ; le catalogue complet et l’association automatique des indicateurs restent à intégrer.</p>
+<div class="grid" id="themes">
+{% for slug, title, description in themes %}
+<button class="theme" type="button" data-title="{{ title }}" data-slug="{{ slug }}">
+<strong>{{ title }}</strong><span>{{ description }}</span>
+</button>
+{% endfor %}
+</div>
+<p class="status" id="themeStatus">Aucun thème sélectionné.</p>
+</section>
+<section class="panel">
+<h2>Tester un indicateur IWEPS</h2>
+<p class="hint">Exemple de départ : <code>833605_7</code>. La disponibilité exacte dépend de l’identifiant et des options acceptées par l’API.</p>
+<div class="row">
+<label>Identifiant de l’indicateur<br><input id="indicator" value="833605_7" autocomplete="off"></label>
+<label>Période<br><select id="period"><option value="all">Toutes les périodes</option><option value="last">Dernière période</option></select></label>
+<button id="load">Charger les données</button>
+<button class="secondary" id="csv">Télécharger CSV</button>
+<button class="secondary" id="json">Télécharger JSON</button>
+</div>
+<p class="status" id="status" role="status">Prêt. Charge un indicateur pour tester la connexion.</p>
+<pre id="result">Les données apparaîtront ici.</pre>
+</section>
+<section class="panel">
+<h2>Sources officielles</h2>
+<ul>
+<li><a href="https://walstat.iweps.be/" target="_blank" rel="noopener">WalStat — statistiques locales</a></li>
+<li><a href="https://www.iweps.be/outils/open-data/" target="_blank" rel="noopener">Documentation Open Data de l’IWEPS</a></li>
+<li><a href="https://www.iweps.be/donnees-et-indicateurs/" target="_blank" rel="noopener">Données et indicateurs de l’IWEPS</a></li>
+</ul>
+</section>
+<p class="footer">Prototype communautaire non officiel. Les données restent la propriété de leurs sources respectives. Vérifie les métadonnées, unités, périodes et conditions de réutilisation avant toute analyse.</p>
+</main>
+<script>
+let lastData = null;
+let lastCsvUrl = null;
+document.querySelectorAll('.theme').forEach(button => {
+ button.addEventListener('click', () => {
+  document.querySelectorAll('.theme').forEach(b => b.classList.remove('active'));
+  button.classList.add('active');
+  document.getElementById('themeStatus').textContent = 'Thème sélectionné : ' + button.dataset.title + '. Le catalogue exhaustif n’est pas encore relié à cette catégorie.';
+ });
+});
+async function loadData(){
+ const id = document.getElementById('indicator').value.trim();
+ const period = document.getElementById('period').value;
+ const status = document.getElementById('status');
+ const result = document.getElementById('result');
+ if(!/^\d+_\d+$/.test(id)){status.textContent='Identifiant invalide. Exemple : 833605_7';return;}
+ status.textContent='Récupération des données…'; result.textContent='';
+ try{
+  const response = await fetch(`/api/data/json/${encodeURIComponent(id)}/com+period=${period}`);
+  const text = await response.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  if(!response.ok) throw new Error((data && data.error) || `Erreur HTTP ${response.status}`);
+  lastData = data;
+  status.textContent='Réponse reçue. Vérifie les valeurs et les métadonnées avant utilisation.';
+  result.textContent=typeof data==='string'?data:JSON.stringify(data,null,2);
+ }catch(e){status.textContent='Échec : '+e.message;result.textContent='Vérifie l’identifiant et réessaie. Si le problème persiste, consulte la documentation IWEPS.';}
+}
+async function download(fmt){
+ const id = document.getElementById('indicator').value.trim();
+ const period = document.getElementById('period').value;
+ const status = document.getElementById('status');
+ if(!/^\d+_\d+$/.test(id)){status.textContent='Identifiant invalide.';return;}
+ try{
+  status.textContent='Préparation du fichier…';
+  const response = await fetch(`/api/data/${fmt}/${encodeURIComponent(id)}/com+period=${period}`);
+  if(!response.ok){const err=await response.json().catch(()=>({}));throw new Error(err.error||`Erreur HTTP ${response.status}`);}
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`iweps_${id}_${period}.${fmt}`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  status.textContent=`Téléchargement ${fmt.toUpperCase()} lancé.`;
+ }catch(e){status.textContent='Échec du téléchargement : '+e.message;}
+}
+document.getElementById('load').addEventListener('click',loadData);
+document.getElementById('csv').addEventListener('click',()=>download('csv'));
+document.getElementById('json').addEventListener('click',()=>download('json'));
+</script>
+</body>
+</html>
